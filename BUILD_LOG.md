@@ -336,3 +336,15 @@ After the fixes, the same test: 138 cards, every one with a real Jev or channel 
 **Why it matters for the video:** Small but relatable security idea: names are what people see, IDs are what you trust. Same reason you check the email address, not just the sender's name.
 
 ---
+
+## 2026-10-15 — One saved handle is enough for a collab
+
+**Decision:** Saving a channel's @handle now covers every video it's credited on, including collabs. When you add a handle, the extension looks up that channel's page once to learn its permanent ID and display name, and shows the result next to the handle in the popup ("@lofigirl · Lofi Girl", or "not found" for a typo).
+
+**Why:** Oriol tested handles and found collabs still got blocked. Inspecting the live page showed why: a collab's video page lists "Fred again.. and LATIN MAFIA" as plain text with no channel links at all, and its homepage card links only the first channel, by its ID rather than its handle. So the handle never appeared anywhere to match against. That also exposed a quieter gap: some ordinary homepage cards link channels by ID, not handle, so a saved handle could miss them too. Knowing each handle's ID fixes the cards; knowing its name fixes collabs, where the credits get split on "and", "y", "x", "&" or commas.
+
+To keep the copycat protection, the name fallback only applies to collabs or videos with no channel links. A single-channel video with its own (different) channel ID can't get in by borrowing a name.
+
+**Why it matters for the video:** Nice example of "the data you need isn't where you'd expect." The fix wasn't smarter matching; it was looking up one missing fact (handle → ID and name) once and remembering it.
+
+---

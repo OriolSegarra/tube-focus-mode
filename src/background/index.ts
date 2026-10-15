@@ -2,6 +2,7 @@ import { getSecrets, getSettings } from "@/lib/storage";
 import { classifyVideoOnTopic } from "@/lib/typesafe";
 import { fuzzyContains, isChannelIdEntry } from "@/lib/text";
 import { getScore } from "@/lib/scoreCache";
+import { CHANNEL_INFO_KEY, getChannelInfo, splitCredits, type ChannelInfoMap } from "@/lib/channels";
 import { UsageLimitError, withUsageLimit } from "@/lib/usage";
 import type { EvaluateVideoResponse } from "@/lib/messages";
 import type { FocusSettings, SecretSettings, VideoDecision, VideoMeta } from "@/lib/types";
@@ -13,10 +14,34 @@ chrome.runtime.onInstalled.addListener(() => void chrome.alarms?.clearAll());
 // Settings and key read once per worker lifetime instead of on every card, refreshed on change.
 let settingsPromise: Promise<FocusSettings> | null = null;
 let secretsPromise: Promise<SecretSettings> | null = null;
-chrome.storage.onChanged.addListener((_changes, area) => {
+let channelInfoPromise: Promise<ChannelInfoMap> | null = null;
+chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync") settingsPromise = null;
-  if (area === "local") secretsPromise = null;
+  // storage.local also holds the score cache and usage counter, which change constantly.
+  if (area === "local" && "focusSecrets" in changes) secretsPromise = null;
+  if (area === "local" && CHANNEL_INFO_KEY in changes) channelInfoPromise = null;
 });
+
+/** Does one allowlist entry cover this video? */
+function channelEntryMatches(entry: string, video: VideoMeta, info: ChannelInfoMap): boolean {
+  if (!isChannelIdEntry(entry)) {
+    // Plain names keep the substring match, since collab credits render as
+    // "Fred again . .and LATIN MAFIA" - which also means "Lofi Girl" lets "Lofi Girl Fans" in.
+    return fuzzyContains(video.channel, entry);
+  }
+  const key = entry.trim().toLowerCase();
+  const resolved = info[key];
+  if (video.channelIds.includes(key) || (resolved && video.channelIds.includes(resolved.id))) return true;
+  if (!resolved) return false;
+  // No id to compare: collab videos list "A and B" with no channel links on /watch, and their
+  // homepage card links only the first channel. Fall back to the exact display name - but only
+  // for collabs or link-less videos, so a single-channel copycat with its own (different) id
+  // can't borrow the name. A copycat using the identical name on a collab is the remaining gap.
+  const credits = splitCredits(video.channel);
+  const isCollab = credits.length > 1;
+  if (!isCollab && video.channelIds.length > 0) return false;
+  return credits.includes(resolved.name);
+}
 
 const LIMITS = { title: 200, channel: 100, description: 500 } as const;
 const YT_ID = /^[\w-]{6,64}$/;
@@ -52,14 +77,11 @@ async function decideVideo(video: VideoMeta): Promise<VideoDecision> {
   );
   if (pinnedMatch) return { allowed: true, reason: "pinned" };
 
-  // "@handle"/"UC…" entries match exactly: a copycat channel can borrow a display name but
-  // not a handle. Plain names keep the substring match, since collab credits render as
-  // "Fred again . .and LATIN MAFIA" - which also means "Lofi Girl" lets "Lofi Girl Fans" in.
-  const channelMatch = settings.allowedChannels.some((c) =>
-    isChannelIdEntry(c.name)
-      ? video.channelIds.includes(c.name.trim().toLowerCase())
-      : fuzzyContains(video.channel, c.name),
-  );
+  // "@handle"/"UC…" entries match by id: a copycat channel can borrow a display name but not
+  // a handle. One saved handle is enough for any collab that channel is credited on.
+  channelInfoPromise ??= getChannelInfo();
+  const info = await channelInfoPromise;
+  const channelMatch = settings.allowedChannels.some((c) => channelEntryMatches(c.name, video, info));
   if (channelMatch) return { allowed: true, reason: "channel" };
 
   // Cheap refusals before anything leaves the browser.

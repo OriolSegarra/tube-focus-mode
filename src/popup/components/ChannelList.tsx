@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { CHANNEL_INFO_KEY, getChannelInfo, type ChannelInfoMap } from "@/lib/channels";
+import { isChannelIdEntry } from "@/lib/text";
 import type { AllowedChannel } from "@/lib/types";
 
 /** A pasted channel link ("youtube.com/@lofigirl/videos", "youtube.com/channel/UC…") becomes
@@ -24,6 +26,26 @@ interface ChannelListProps {
 
 export function ChannelList({ channels, onChange }: ChannelListProps) {
   const [draft, setDraft] = useState("");
+  const [info, setInfo] = useState<ChannelInfoMap>({});
+
+  useEffect(() => {
+    void getChannelInfo().then(setInfo);
+    const onStorage = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      const next = changes[CHANNEL_INFO_KEY]?.newValue as ChannelInfoMap | undefined;
+      if (area === "local" && next) setInfo(next);
+    };
+    chrome.storage.onChanged.addListener(onStorage);
+    return () => chrome.storage.onChanged.removeListener(onStorage);
+  }, []);
+
+  /** Handles are looked up by the YouTube tab (the popup has no access to youtube.com). */
+  function status(entry: string): { text: string; tone: string } | null {
+    if (!isChannelIdEntry(entry)) return null;
+    const key = entry.trim().toLowerCase();
+    if (!(key in info)) return { text: "checks on next YouTube visit", tone: "text-ink-muted" };
+    const resolved = info[key];
+    return resolved ? { text: resolved.label, tone: "text-ok" } : { text: "not found", tone: "text-danger" };
+  }
 
   function add() {
     const name = normalizeEntry(draft);
@@ -56,14 +78,18 @@ export function ChannelList({ channels, onChange }: ChannelListProps) {
         channel. Without the @ it's treated as a name, which also matches any channel whose name contains it.
       </p>
       <div className="flex flex-wrap gap-1.5">
-        {channels.map((c, i) => (
-          <span key={i} className="chip">
-            {c.name}
-            <button type="button" onClick={() => onChange(channels.filter((_, idx) => idx !== i))}>
-              &times;
-            </button>
-          </span>
-        ))}
+        {channels.map((c, i) => {
+          const st = status(c.name);
+          return (
+            <span key={i} className="chip">
+              {c.name}
+              {st && <span className={`normal-case tracking-normal ${st.tone}`}>· {st.text}</span>}
+              <button type="button" onClick={() => onChange(channels.filter((_, idx) => idx !== i))}>
+                &times;
+              </button>
+            </span>
+          );
+        })}
       </div>
     </div>
   );

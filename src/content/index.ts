@@ -1,7 +1,8 @@
 import { getSettings, onSettingsChanged } from "@/lib/storage";
 import { evaluateVideo } from "@/lib/messages";
 import { isFocusActive } from "@/lib/schedule";
-import { channelIdFromHref } from "@/lib/text";
+import { channelIdFromHref, isChannelIdEntry } from "@/lib/text";
+import { CHANNEL_INFO_KEY, getChannelInfo, resolveChannel } from "@/lib/channels";
 import type { FocusSettings, VideoDecision, VideoMeta } from "@/lib/types";
 
 let currentSettings: FocusSettings | null = null;
@@ -163,7 +164,21 @@ const text = (selector: string) => document.querySelector(selector)?.textContent
 const TITLE_SELECTOR = "ytd-watch-metadata h1 yt-formatted-string, ytd-watch-metadata #title h1";
 // Single-artist videos expose the channel as an <a>; collab credits render a <button> that
 // opens a list of all credited channels. Take the whole owner block so both shapes work.
-const CHANNEL_SELECTOR = "ytd-video-owner-renderer, ytd-channel-name#channel-name, #owner";
+/** Just the credited name(s), not the whole owner block (which adds "32.5k subscribers" and
+ * a hidden tooltip copy). Two shapes, checked on the live page:
+ * - one channel: a link inside ytd-channel-name -> "Matthias Frank"
+ * - collab: separate attributed-string spans, no hrefs -> "Fred again . ." + "and LATIN MAFIA" */
+function watchChannelText(): string {
+  const owner = document.querySelector("ytd-video-owner-renderer");
+  if (!owner) return text("#owner");
+  const single = owner.querySelector("ytd-channel-name yt-formatted-string a")?.textContent?.trim();
+  if (single) return single;
+  const credits = [...owner.querySelectorAll('a[class*="ytAttributedStringLink"]')]
+    .map((el) => el.textContent?.trim() ?? "")
+    .filter(Boolean);
+  if (credits.length) return credits.join(" ");
+  return owner.querySelector("ytd-channel-name")?.textContent?.trim() ?? "";
+}
 
 /** On in-app navigation, yt-navigate-finish fires while the DOM still shows the previous
  * video's title and channel (measured: ~0.6-0.9s). ytd-watch-flexy's video-id flips in the
@@ -172,12 +187,12 @@ const CHANNEL_SELECTOR = "ytd-video-owner-renderer, ytd-channel-name#channel-nam
 async function extractVideoMeta(videoId: string): Promise<VideoMeta> {
   await waitFor(() => document.querySelector(`ytd-watch-flexy[video-id="${CSS.escape(videoId)}"]`), 5000);
   await waitFor(() => text(TITLE_SELECTOR) || null, 1500);
-  await waitFor(() => text(CHANNEL_SELECTOR) || null, 1500);
+  await waitFor(() => watchChannelText() || null, 1500);
 
   return {
     videoId,
     title: text(TITLE_SELECTOR) || document.title.replace(/ - YouTube$/, ""),
-    channel: text(CHANNEL_SELECTOR),
+    channel: watchChannelText(),
     channelIds: channelIdsIn(document.querySelector("ytd-video-owner-renderer")),
     description: text("#description-inline-expander").slice(0, 500),
     playlistId: new URL(location.href).searchParams.get("list") ?? undefined,
@@ -406,6 +421,32 @@ function decisionKey(s: FocusSettings): string {
   ]);
 }
 
+let resolving = false;
+
+/** Looks up each saved @handle / UC… entry once (name + permanent id), so it can match cards
+ * that link by id and collabs that only show names. Results live in storage.local; the
+ * popup shows them, the background matches with them. */
+async function resolveChannelEntries(): Promise<void> {
+  if (resolving || !currentSettings) return;
+  resolving = true;
+  try {
+    const known = await getChannelInfo();
+    const missing = currentSettings.allowedChannels
+      .map((c) => c.name.trim())
+      .filter((entry) => isChannelIdEntry(entry) && !(entry.toLowerCase() in known));
+    let changed = false;
+    for (const entry of missing) {
+      const info = await resolveChannel(entry);
+      if (info === undefined) continue; // transient failure, retry on a later pass
+      known[entry.toLowerCase()] = info;
+      changed = true;
+    }
+    if (changed) await chrome.storage.local.set({ [CHANNEL_INFO_KEY]: known });
+  } finally {
+    resolving = false;
+  }
+}
+
 async function init(): Promise<void> {
   // An orphaned copy from before an update may have left its overlay behind.
   document.querySelectorAll("#focus-mode-overlay").forEach((el) => el.remove());
@@ -426,6 +467,15 @@ async function init(): Promise<void> {
   onSettingsChanged((settings) => {
     currentSettings = settings;
     refresh();
+    void resolveChannelEntries();
+  });
+  void resolveChannelEntries();
+  // A newly resolved handle can turn earlier "blocked" verdicts into matches: re-check.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !(CHANNEL_INFO_KEY in changes) || isOrphaned()) return;
+    currentVideoId = null;
+    resetHomeVerdicts();
+    route();
   });
   // Locked windows start and end on the clock, not on a storage write.
   refreshTimer = setInterval(() => (isOrphaned() ? teardown() : refresh()), 30_000);
