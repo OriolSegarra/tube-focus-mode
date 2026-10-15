@@ -12,7 +12,7 @@ interface CachedScore {
   source: MetaSource;
 }
 
-/** Raw Jev scores per videoId, valid only for the topic text they were computed against.
+/** Raw Jev scores per videoId, valid only for the model + topic text they were computed against.
  * Storing the score (not the allowed/blocked verdict) means threshold changes are free:
  * the comparison is redone locally, only a topic change needs Jev again. */
 interface ScoreCache {

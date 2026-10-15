@@ -1,5 +1,9 @@
 const TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const TIMEOUT_MS = 8000;
+/** Pinned, not "jev-latest": the alias moves on TypeSafe's schedule, and the user's threshold
+ * is tuned against one version's scores. 1.14 mainly improves non-English titles. Bumping
+ * this also starts a fresh score cache (see background). */
+export const JEV_MODEL = "jev-1.14.0";
 
 interface NoulAnswer {
   type: "noul";
@@ -35,7 +39,7 @@ export async function classifyVideoOnTopic(
     signal: AbortSignal.timeout(TIMEOUT_MS),
     body: JSON.stringify({
       state,
-      model: "jev-latest",
+      model: JEV_MODEL,
       questions: {
         on_topic: {
           type: "noul",

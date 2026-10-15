@@ -19,7 +19,7 @@ Every video goes through three checks, in order. The first two never leave your 
 
 1. **Pinned videos and playlists** you added are always allowed.
 2. **Allowed channels** are always allowed. Add them as `@handle` (or paste the channel's link) for an exact match. One saved handle also covers collabs that channel is credited on.
-3. **Everything else is asked to [Jev](https://typesafe.ai)**, TypeSafe's classification model: *"Does this video match the topics this person wants to focus on?"* Jev answers with a probability from 0 to 1, and the video is allowed if it's above your threshold (you set it with a slider).
+3. **Everything else is asked to [Jev](https://typesafe.ai)** (pinned to `jev-1.14.0`), TypeSafe's classification model: *"Does this video match the topics this person wants to focus on?"* Jev answers with a probability from 0 to 1, and the video is allowed if it's above your threshold (you set it with a slider).
 
 You describe your topics in plain words, like *"Notion tutorials, focus music, lo-fi, programming"*. No keyword lists.
 
@@ -91,7 +91,7 @@ Production builds ship with a strict content security policy (scripts only from 
 
 - **It depends on YouTube's page structure.** When YouTube changes its markup, filtering can slow down or miss cards until the selectors are updated. It fails closed: when in doubt, it blocks.
 - **Desktop youtube.com only.** Not the mobile site or the apps.
-- **Jev is strongest in English.** Titles in other languages are handled, but less reliably.
+- **Jev is strongest in English.** Jev 1.14 improved other languages, but test with your own feed before relying on it for non-English topics.
 - **Homepage cards have no description**, so a card's score is a slightly rougher guess. Opening the video re-checks it with the full description.
 - **It's a nudge, not a lock.** Anyone can disable the extension. It's built for people who want help focusing, not for parental control.
 

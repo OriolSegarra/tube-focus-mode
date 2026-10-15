@@ -348,3 +348,13 @@ To keep the copycat protection, the name fallback only applies to collabs or vid
 **Why it matters for the video:** Nice example of "the data you need isn't where you'd expect." The fix wasn't smarter matching; it was looking up one missing fact (handle → ID and name) once and remembering it.
 
 ---
+
+## 2026-10-15 — Jev 1.14 came out mid-build: pin it, don't follow it
+
+**Decision:** Switched from `jev-latest` to an explicit `jev-1.14.0`, and made the score cache start fresh whenever the model version changes.
+
+**Why:** TypeSafe released Jev 1.14 the day before, with the biggest gains in non-English text (exactly the weak spot for Oriol's Spanish and Catalan feed), at the same price. The extension asked for `jev-latest`, which TypeSafe moves to the new version about a week later, silently. That would have mixed old and new scores in the cache, and the threshold Oriol tuned (0.55) was tuned on the old model's scores. TypeSafe's own docs say the same: if you've tuned a threshold, name the version. Skipped the other announcements (image input, a bounding-box answer type, long context): they're labelled "danger zone" experimental, and a title plus channel already carries the signal.
+
+**Why it matters for the video:** A real-world AI habit worth showing: model updates are like dependency updates. "Latest" feels convenient until your app's behaviour changes overnight and you can't tell why. Pin the version, upgrade on purpose, and re-check your numbers after.
+
+---

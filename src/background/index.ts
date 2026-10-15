@@ -1,5 +1,5 @@
 import { getSecrets, getSettings } from "@/lib/storage";
-import { classifyVideoOnTopic } from "@/lib/typesafe";
+import { JEV_MODEL, classifyVideoOnTopic } from "@/lib/typesafe";
 import { fuzzyContains, isChannelIdEntry } from "@/lib/text";
 import { getScore } from "@/lib/scoreCache";
 import { CHANNEL_INFO_KEY, getChannelInfo, splitCredits, type ChannelInfoMap } from "@/lib/channels";
@@ -94,7 +94,8 @@ async function decideVideo(video: VideoMeta): Promise<VideoDecision> {
 
   const state = `Title: ${video.title}\nChannel: ${video.channel}\nDescription: ${video.description}`;
   try {
-    const noul = await getScore(video.videoId, topic, video.source, () =>
+    // Scores are only comparable within one model version, so the model is part of the key.
+    const noul = await getScore(video.videoId, `${JEV_MODEL}\n${topic}`, video.source, () =>
       withUsageLimit(() => classifyVideoOnTopic(typesafeApiKey, state, topic), { urgent: video.source === "watch" }),
     );
     return { allowed: noul >= settings.allowThreshold, reason: "topic", confidence: noul };
