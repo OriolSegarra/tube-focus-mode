@@ -326,3 +326,13 @@ After the fixes, the same test: 138 cards, every one with a real Jev or channel 
 **Why it matters for the video:** Strong honest beat: "the safety feature caused the bug." A rate limit meant to protect users silently blocked good videos, and it looked identical to the AI making bad calls. Lesson for anyone building with AI: when the AI seems wrong, check the plumbing around it first. Good screen-recording moment: the overlay timing log (old video's title still on screen for ~0.8s after the click).
 
 ---
+
+## 2026-10-15 — Allowing a channel by its @handle, not its name
+
+**Decision:** Allowed channels can now be entered as an @handle (like `@mfreihaendig`), which matches only that exact channel. Plain names still work the old way.
+
+**Why:** Matching by name had a loophole: allowing "Lofi Girl" also let in "Lofi Girl Fans", and a short entry like "AI" matched half of YouTube. Anyone can copy a channel's display name; nobody can copy its handle. Checking the live page showed the handle is already there on every homepage card and video page (in the link behind the channel's avatar), so no extra lookups were needed. Names stay as a fallback because collab videos credit several channels in one line.
+
+**Why it matters for the video:** Small but relatable security idea: names are what people see, IDs are what you trust. Same reason you check the email address, not just the sender's name.
+
+---
