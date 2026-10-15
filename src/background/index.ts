@@ -64,7 +64,7 @@ async function decideVideo(video: VideoMeta): Promise<VideoDecision> {
   const state = `Title: ${video.title}\nChannel: ${video.channel}\nDescription: ${video.description}`;
   try {
     const noul = await getScore(video.videoId, topic, video.source, () =>
-      withUsageLimit(() => classifyVideoOnTopic(typesafeApiKey, state, topic)),
+      withUsageLimit(() => classifyVideoOnTopic(typesafeApiKey, state, topic), { urgent: video.source === "watch" }),
     );
     return { allowed: noul >= settings.allowThreshold, reason: "topic", confidence: noul };
   } catch (err) {

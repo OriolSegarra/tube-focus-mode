@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, type FocusSettings } from "@/lib/types";
 import { getSecrets, getSettings, setSecrets, setSettings } from "@/lib/storage";
 import { isWithinSchedule } from "@/lib/schedule";
-import { DAILY_LIMIT, getDailyUsage } from "@/lib/usage";
+import { DAILY_LIMIT, USAGE_STORAGE_KEY, getDailyUsage, type DailyUsage } from "@/lib/usage";
 import { Toggle } from "./components/Toggle";
 import { Section } from "./components/Section";
 import { ScheduleEditor } from "./components/ScheduleEditor";
@@ -35,7 +35,17 @@ export default function App() {
       pendingWriteRef.current = null;
     };
     window.addEventListener("pagehide", flush);
-    return () => window.removeEventListener("pagehide", flush);
+
+    // Live counter: the popup often stays open while you scroll YouTube.
+    const onStorage = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      const next = changes[USAGE_STORAGE_KEY]?.newValue as DailyUsage | undefined;
+      if (area === "local" && next) setChecksToday(next.count);
+    };
+    chrome.storage.onChanged.addListener(onStorage);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      chrome.storage.onChanged.removeListener(onStorage);
+    };
   }, []);
 
   /** Clicks (toggles, add/remove) save immediately. Typing and slider drags are debounced:

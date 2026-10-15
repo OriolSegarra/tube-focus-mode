@@ -151,21 +151,19 @@ async function waitFor<T>(read: () => T | null | undefined, timeoutMs: number): 
 }
 
 const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? "";
-const TITLE_SELECTOR = "ytd-watch-metadata yt-formatted-string.ytd-watch-metadata-renderer, h1.ytd-watch-metadata-renderer";
+const TITLE_SELECTOR = "ytd-watch-metadata h1 yt-formatted-string, ytd-watch-metadata #title h1";
 // Single-artist videos expose the channel as an <a>; collab credits render a <button> that
 // opens a list of all credited channels. Take the whole owner block so both shapes work.
 const CHANNEL_SELECTOR = "ytd-video-owner-renderer, ytd-channel-name#channel-name, #owner";
 
-/** On in-app navigation YouTube keeps the previous video's title/channel in the DOM for a
- * moment. Reading too early would judge the new video by the old one's metadata (and cache
- * that wrong score), so wait until the player says it's on this video and the title moved. */
-async function extractVideoMeta(videoId: string, previousTitle: string): Promise<VideoMeta> {
-  await waitFor(() => document.querySelector(`ytd-watch-flexy[video-id="${CSS.escape(videoId)}"]`), 4000);
-  await waitFor(() => {
-    const title = text(TITLE_SELECTOR);
-    return title && title !== previousTitle ? title : null;
-  }, previousTitle ? 1500 : 4000);
-  await waitFor(() => text(CHANNEL_SELECTOR) || null, 2000);
+/** On in-app navigation, yt-navigate-finish fires while the DOM still shows the previous
+ * video's title and channel (measured: ~0.6-0.9s). ytd-watch-flexy's video-id flips in the
+ * same render as the new title/channel, so wait for that before reading anything - reading
+ * early would judge the new video by the old one's metadata and cache the wrong score. */
+async function extractVideoMeta(videoId: string): Promise<VideoMeta> {
+  await waitFor(() => document.querySelector(`ytd-watch-flexy[video-id="${CSS.escape(videoId)}"]`), 5000);
+  await waitFor(() => text(TITLE_SELECTOR) || null, 1500);
+  await waitFor(() => text(CHANNEL_SELECTOR) || null, 1500);
 
   return {
     videoId,
@@ -187,15 +185,11 @@ async function handleWatchPage(): Promise<void> {
   if (videoId === currentVideoId) return;
 
   const seq = ++checkSeq;
-  // ytd-watch-flexy survives trips to other pages, so stale metadata can be there even when
-  // arriving from home - remember the old title whenever the player is on another video.
-  const flexyId = document.querySelector("ytd-watch-flexy")?.getAttribute("video-id");
-  const previousTitle = flexyId && flexyId !== videoId ? text(TITLE_SELECTOR) : "";
   currentVideoId = videoId;
   showChecking();
 
   try {
-    const meta = await extractVideoMeta(videoId, previousTitle);
+    const meta = await extractVideoMeta(videoId);
     if (seq !== checkSeq) return;
     const { decision } = await evaluateVideo(meta);
     if (seq !== checkSeq) return;
@@ -243,8 +237,11 @@ function getVideoIdFromHref(href: string | null): string | null {
   }
 }
 
-function setVerdict(card: Element, verdict: "allowed" | "blocked" | "skip"): void {
+function setVerdict(card: Element, verdict: "allowed" | "blocked" | "skip", reason = ""): void {
   card.setAttribute("data-focus-verdict", verdict);
+  // Shipped builds have no logs; this lets you see *why* a card is blurred in devtools.
+  if (reason) card.setAttribute("data-focus-reason", reason);
+  else card.removeAttribute("data-focus-reason");
 }
 
 function processHomeCard(card: Element): void {
@@ -293,13 +290,13 @@ function processHomeCard(card: Element): void {
     .then(({ decision }) => {
       if (card.getAttribute("data-focus-checked") !== videoId) return; // recycled for another video
       if (epoch !== homeEpoch) return; // settings changed; resetHomeVerdicts already queued a re-check
-      if (decision.allowed) setVerdict(card, "allowed");
+      if (decision.allowed) setVerdict(card, "allowed", decision.reason);
       else if (decision.reason === "error") {
         // Transient failure: retry on a later scan, but not on every animation frame.
         card.removeAttribute("data-focus-checked");
         card.setAttribute("data-focus-retry-id", videoId);
         card.setAttribute("data-focus-retry-at", String(Date.now() + RETRY_AFTER_MS));
-      } else setVerdict(card, "blocked");
+      } else setVerdict(card, "blocked", decision.reason);
     })
     .catch(() => {
       // Extension reloaded under us: leave the card blurred; a page reload re-attaches.
@@ -346,7 +343,26 @@ function resetHomeVerdicts(): void {
 // ---------------------------------------------------------------------------------------
 // Routing
 
+/** After the extension reloads or updates, the copy already running in open tabs is cut off
+ * from the background (chrome.runtime.id goes away) but keeps reacting to navigation. Left
+ * alone it shows overlays it can never resolve and blurs cards next to the new copy. */
+function isOrphaned(): boolean {
+  return !chrome.runtime?.id;
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
+function teardown(): void {
+  setHomeObserver(false);
+  if (refreshTimer) clearInterval(refreshTimer);
+  document.removeEventListener("yt-navigate-finish", route);
+  overlayEl?.remove();
+  overlayEl = null;
+  document.removeEventListener("play", blockPlayback, true);
+}
+
 function route(): void {
+  if (isOrphaned()) return teardown();
   if (!currentSettings) return;
   // yt-navigate-finish can fire twice for one video; don't orphan the check already running.
   const sameVideo = location.pathname === "/watch" && new URL(location.href).searchParams.get("v") === currentVideoId;
@@ -381,6 +397,8 @@ function decisionKey(s: FocusSettings): string {
 }
 
 async function init(): Promise<void> {
+  // An orphaned copy from before an update may have left its overlay behind.
+  document.querySelectorAll("#focus-mode-overlay").forEach((el) => el.remove());
   currentSettings = await getSettings();
   let lastKey = decisionKey(currentSettings);
   route();
@@ -400,7 +418,7 @@ async function init(): Promise<void> {
     refresh();
   });
   // Locked windows start and end on the clock, not on a storage write.
-  setInterval(refresh, 30_000);
+  refreshTimer = setInterval(() => (isOrphaned() ? teardown() : refresh()), 30_000);
   document.addEventListener("yt-navigate-finish", route);
 }
 

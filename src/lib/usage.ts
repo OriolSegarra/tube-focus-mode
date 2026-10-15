@@ -4,7 +4,6 @@
 
 const USAGE_KEY = "jevUsage";
 export const DAILY_LIMIT = 1000;
-const PER_MINUTE_LIMIT = 60;
 const MAX_CONCURRENT = 4;
 
 export interface DailyUsage {
@@ -20,14 +19,13 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+export const USAGE_STORAGE_KEY = USAGE_KEY;
+
 export async function getDailyUsage(): Promise<DailyUsage> {
   const stored = (await chrome.storage.local.get(USAGE_KEY))[USAGE_KEY] as DailyUsage | undefined;
   return stored?.date === today() ? stored : { date: today(), count: 0 };
 }
 
-// Per-minute window lives in memory: a service worker restart resets it, which is fine
-// since the daily cap (persisted) is the real backstop.
-const recentCalls: number[] = [];
 let usagePromise: Promise<DailyUsage> | null = null;
 let active = 0;
 const waiting: (() => void)[] = [];
@@ -39,23 +37,21 @@ async function reserveSlot(): Promise<void> {
     usage.date = today();
     usage.count = 0;
   }
-  const now = Date.now();
-  while (recentCalls.length && now - recentCalls[0]! > 60_000) recentCalls.shift();
-
   if (usage.count >= DAILY_LIMIT) throw new UsageLimitError(`Daily limit of ${DAILY_LIMIT} Jev checks reached`);
-  if (recentCalls.length >= PER_MINUTE_LIMIT) throw new UsageLimitError("Too many Jev checks this minute");
-
   usage.count++;
-  recentCalls.push(now);
   void chrome.storage.local.set({ [USAGE_KEY]: usage });
 }
 
-/** Runs `call` if under the daily/per-minute limits, with at most MAX_CONCURRENT in flight
- * so a homepage load doesn't fire 50 requests at once and trip TypeSafe's rate limit. */
-export async function withUsageLimit<T>(call: () => Promise<T>): Promise<T> {
+/** Runs `call` if under the daily cap, with at most MAX_CONCURRENT in flight. Bursts (a fast
+ * scroll loads 100+ new cards) queue here instead of being refused: an earlier per-minute
+ * cap marked everything past 60 as blocked, which looked exactly like Jev rejecting them. */
+export async function withUsageLimit<T>(call: () => Promise<T>, { urgent = false } = {}): Promise<T> {
   await reserveSlot();
   // A finishing call hands its slot straight to the next waiter, so `active` never overshoots.
-  if (active >= MAX_CONCURRENT) await new Promise<void>((resolve) => waiting.push(resolve));
+  // Urgent (the video you just opened) jumps ahead of a backlog of homepage cards.
+  if (active >= MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => (urgent ? waiting.unshift(resolve) : waiting.push(resolve)));
+  }
   else active++;
   try {
     return await call();

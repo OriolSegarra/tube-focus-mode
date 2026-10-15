@@ -16,6 +16,13 @@ html.focus-hide-home ytd-browse[page-subtype="home"] ytd-rich-item-renderer:not(
   transition: filter 220ms ease;
 }
 
+/* Class set by v0.1. If a tab was never reloaded after updating, the old copy keeps adding
+   it and can never remove it (it's cut off from the background), so neutralise its blur. */
+.focus-grid-hidden:not(#_) {
+  filter: none;
+  pointer-events: auto;
+}
+
 /* Entry points into Shorts (shelf, nav links). The /shorts/* route itself is blocked
    by the full-page overlay in index.ts, not by hiding the player's internal renderer -
    that renderer is reused elsewhere and hiding it broke more than it fixed. */
