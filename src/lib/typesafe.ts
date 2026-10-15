@@ -1,4 +1,5 @@
 const TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
+const TIMEOUT_MS = 8000;
 
 interface NoulAnswer {
   type: "noul";
@@ -24,14 +25,14 @@ export async function classifyVideoOnTopic(
   topicDescription: string,
 ): Promise<number> {
   const instructions = `The video matches the user's approved focus-mode topics: ${topicDescription}`;
-  console.log("[focus-mode][jev] calling TypeSafe", { state, instructions, hasApiKey: !!apiKey });
-
   const res = await fetch(TYPESAFE_ENDPOINT, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
+    // A hung request would otherwise leave the "checking" card up until the worker dies.
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     body: JSON.stringify({
       state,
       model: "jev-latest",
@@ -47,10 +48,13 @@ export async function classifyVideoOnTopic(
   if (!res.ok) {
     const body = await res.text();
     console.error("[focus-mode][jev] API error", res.status, body);
-    throw new TypeSafeError(`TypeSafe API error: ${res.status} ${body}`);
+    throw new TypeSafeError(`TypeSafe API error: ${res.status}`);
   }
 
-  const data = (await res.json()) as SystemOneResponse;
-  console.log("[focus-mode][jev] response", data);
-  return data.answers.on_topic.noul;
+  const data = (await res.json()) as Partial<SystemOneResponse>;
+  const noul = data.answers?.on_topic?.noul;
+  if (typeof noul !== "number" || !Number.isFinite(noul)) {
+    throw new TypeSafeError("TypeSafe returned an unexpected response");
+  }
+  return noul;
 }

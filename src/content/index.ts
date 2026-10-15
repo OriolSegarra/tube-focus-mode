@@ -1,48 +1,60 @@
 import { getSettings, onSettingsChanged } from "@/lib/storage";
 import { evaluateVideo } from "@/lib/messages";
-import type { FocusSettings, VideoMeta } from "@/lib/types";
+import { isFocusActive } from "@/lib/schedule";
+import type { FocusSettings, VideoDecision, VideoMeta } from "@/lib/types";
 
 let currentSettings: FocusSettings | null = null;
 let currentVideoId: string | null = null;
 let overlayEl: HTMLElement | null = null;
+/** Bumped when the open page changes; a /watch check whose token is stale drops its result. */
+let checkSeq = 0;
+/** Bumped when settings change; home-card verdicts from an older epoch are dropped. Separate
+ * from checkSeq so plain navigation doesn't throw away still-valid card verdicts. */
+let homeEpoch = 0;
 
-function applyHidingClasses(settings: FocusSettings): void {
+function isActive(): boolean {
+  return !!currentSettings && isFocusActive(currentSettings);
+}
+
+function applyHidingClasses(): void {
   const html = document.documentElement;
-  const active = settings.manualEnabled;
-  html.classList.toggle("focus-hide-home", active && settings.hideHomepage);
-  html.classList.toggle("focus-hide-shorts", active && settings.hideShorts);
+  const active = isActive();
+  html.classList.toggle("focus-hide-home", active && !!currentSettings?.hideHomepage);
+  html.classList.toggle("focus-hide-shorts", active && !!currentSettings?.hideShorts);
 }
 
-function ensureOverlay(): HTMLElement {
-  if (overlayEl) return overlayEl;
-  const el = document.createElement("div");
-  el.id = "focus-mode-overlay";
-  el.innerHTML = `
-    <div class="focus-card">
-      <span class="focus-stamp">DENIED</span>
-      <span class="focus-tag">Focus Mode</span>
-      <h1>nah bestie, not today 💀</h1>
-      <p>This video didn't make the cut. Add the channel or pin it from the extension popup if it's actually main-character content.</p>
-      <div class="focus-actions">
-        <button data-action="back">&lt; Back</button>
-        <button data-action="home">Go home</button>
-      </div>
-    </div>
-  `;
-  el.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    const action = target.closest("button")?.getAttribute("data-action");
-    if (action === "back") history.back();
-    if (action === "home") (window.location.href = "https://www.youtube.com/");
-  });
-  document.documentElement.appendChild(el);
-  overlayEl = el;
-  return el;
-}
+// ---------------------------------------------------------------------------------------
+// Overlay
 
-function pauseVideo(): void {
-  document.querySelector("video")?.pause();
-}
+const COPY = {
+  blocked: [
+    "nah bestie, not today 💀",
+    "This video didn't make the cut. Add the channel or pin it from the extension popup if it's actually main-character content.",
+  ],
+  shorts: [
+    "shorts = brainrot, not on my watch",
+    "Shorts are a hard no during focus mode, no exceptions. Go pin an actual video if you need one.",
+  ],
+  "no-api-key": [
+    "No TypeSafe API key set",
+    "Add one in the extension popup so the topic check can run, or add this channel/video to your allowlist.",
+  ],
+  "no-consent": [
+    "Topic checks are off",
+    "Open the extension popup and allow topic checks, or add this channel/video to your allowlist.",
+  ],
+  "no-topic": [
+    "No focus topics set",
+    "Describe what you're allowed to watch in the extension popup, or add this channel/video to your allowlist.",
+  ],
+  limit: [
+    "Jev check limit reached",
+    "You've hit the safety cap on topic checks. Allowlisted channels and pinned videos still work.",
+  ],
+  error: ["Topic check failed", "Something went wrong checking this video. Try reloading the tab."],
+} as const;
+
+type CopyKey = keyof typeof COPY;
 
 const CHECKING_LINES = [
   "asking jev if this slaps fr fr",
@@ -52,27 +64,58 @@ const CHECKING_LINES = [
   "jev is thinking (be patient bestie)",
 ];
 
-function showOverlay(): void {
-  console.log("[focus-mode][overlay] showOverlay (blocked)");
+function ensureOverlay(): HTMLElement {
+  if (overlayEl) return overlayEl;
+  const el = document.createElement("div");
+  el.id = "focus-mode-overlay";
+  // Static markup only - every dynamic string goes in via textContent in setOverlayCopy.
+  el.innerHTML = `
+    <div class="focus-card">
+      <span class="focus-stamp">DENIED</span>
+      <span class="focus-tag">Focus Mode</span>
+      <h1></h1>
+      <p></p>
+      <div class="focus-actions">
+        <button data-action="back">&lt; Back</button>
+        <button data-action="home">Go home</button>
+      </div>
+    </div>
+  `;
+  el.addEventListener("click", (e) => {
+    const action = (e.target as HTMLElement).closest("button")?.getAttribute("data-action");
+    if (action === "back") history.back();
+    if (action === "home") window.location.href = "https://www.youtube.com/";
+  });
+  document.documentElement.appendChild(el);
+  overlayEl = el;
+  return el;
+}
+
+function setOverlayCopy(heading: string, body: string): void {
   const el = ensureOverlay();
+  el.querySelector("h1")!.textContent = heading;
+  el.querySelector("p")!.textContent = body;
+}
+
+/** While blocked, any attempt to play (k/space, clicking through, the miniplayer) is undone. */
+function blockPlayback(e: Event): void {
+  if (e.target instanceof HTMLMediaElement) e.target.pause();
+}
+
+function showBlocked(key: CopyKey): void {
+  const el = ensureOverlay();
+  const [heading, body] = COPY[key];
+  setOverlayCopy(heading, body);
   el.classList.remove("is-checking");
   el.classList.add("is-visible");
-  pauseVideo();
+  document.querySelector("video")?.pause();
+  document.addEventListener("play", blockPlayback, true);
 }
 
-function hideOverlay(): void {
-  console.log("[focus-mode][overlay] hideOverlay");
-  overlayEl?.classList.remove("is-visible");
-}
-
-/** "Checking" state reuses the same centered card as the blocked state - just with
- * different content and a neutral/pulsing look - so the transition between the two is a
- * content swap in place, not two different elements jumping around the screen. Doesn't
- * pause playback: Jev resolves in well under a second, and a scripted .play() to resume
- * after the async round trip is unreliable (the browser's autoplay gesture often expires
- * by then), so we only touch the video if it actually ends up blocked. */
-function showCheckingOverlay(): void {
-  console.log("[focus-mode][overlay] showCheckingOverlay");
+/** "Checking" reuses the blocked card with different copy, so checking -> blocked is a
+ * content swap in place. Doesn't pause: Jev usually answers well under a second, and a
+ * scripted .play() after the round trip is unreliable (autoplay gesture expires). */
+function showChecking(): void {
   const el = ensureOverlay();
   el.classList.add("is-checking");
   const line = CHECKING_LINES[Math.floor(Math.random() * CHECKING_LINES.length)] ?? "checking...";
@@ -80,123 +123,116 @@ function showCheckingOverlay(): void {
   el.classList.add("is-visible");
 }
 
-function showShortsBlockedOverlay(): void {
-  const el = ensureOverlay();
-  const heading = el.querySelector("h1");
-  const body = el.querySelector("p");
-  if (heading) heading.textContent = "shorts = brainrot, not on my watch";
-  if (body) body.textContent = "Shorts are a hard no during focus mode, no exceptions. Go pin an actual video if you need one.";
-  showOverlay();
+function hideOverlay(): void {
+  overlayEl?.classList.remove("is-visible");
+  document.removeEventListener("play", blockPlayback, true);
 }
 
-function setOverlayCopy(heading: string, body: string): void {
-  const el = ensureOverlay();
-  const headingEl = el.querySelector("h1");
-  const bodyEl = el.querySelector("p");
-  if (headingEl) headingEl.textContent = heading;
-  if (bodyEl) bodyEl.textContent = body;
+function copyKeyFor(decision: VideoDecision): CopyKey {
+  if (decision.allowed || decision.reason === "topic") return "blocked";
+  return decision.reason;
 }
 
-function resetOverlayCopy(): void {
-  setOverlayCopy(
-    "nah bestie, not today 💀",
-    "This video didn't make the cut. Add the channel or pin it from the extension popup if it's actually main-character content.",
-  );
+// ---------------------------------------------------------------------------------------
+// /watch and /shorts
+
+function wait(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function getVideoIdFromUrl(): string | null {
-  return new URL(location.href).searchParams.get("v");
-}
-
-function getShortsIdFromUrl(): string | null {
-  const match = location.pathname.match(/^\/shorts\/([^/?]+)/);
-  return match?.[1] ?? null;
-}
-
-async function waitForSelector(selector: string, timeoutMs = 4000): Promise<Element | null> {
+async function waitFor<T>(read: () => T | null | undefined, timeoutMs: number): Promise<T | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const el = document.querySelector(selector);
-    if (el?.textContent?.trim()) return el;
-    await new Promise((r) => setTimeout(r, 150));
+    const value = read();
+    if (value) return value;
+    await wait(100);
   }
   return null;
 }
 
-async function extractVideoMeta(videoId: string): Promise<VideoMeta> {
-  const titleEl = await waitForSelector("ytd-watch-metadata yt-formatted-string.ytd-watch-metadata-renderer, h1.ytd-watch-metadata-renderer");
-  // Single-artist videos expose the channel as an <a>; multi-artist/collab credits
-  // render it as a <button> that opens a dropdown of all credited channels instead.
-  // Grab the whole owner block's text so either shape - and multi-artist collabs - come through.
-  const channelEl = await waitForSelector("ytd-video-owner-renderer, ytd-channel-name#channel-name, #owner");
-  const descriptionEl = document.querySelector("#description-inline-expander");
+const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? "";
+const TITLE_SELECTOR = "ytd-watch-metadata yt-formatted-string.ytd-watch-metadata-renderer, h1.ytd-watch-metadata-renderer";
+// Single-artist videos expose the channel as an <a>; collab credits render a <button> that
+// opens a list of all credited channels. Take the whole owner block so both shapes work.
+const CHANNEL_SELECTOR = "ytd-video-owner-renderer, ytd-channel-name#channel-name, #owner";
+
+/** On in-app navigation YouTube keeps the previous video's title/channel in the DOM for a
+ * moment. Reading too early would judge the new video by the old one's metadata (and cache
+ * that wrong score), so wait until the player says it's on this video and the title moved. */
+async function extractVideoMeta(videoId: string, previousTitle: string): Promise<VideoMeta> {
+  await waitFor(() => document.querySelector(`ytd-watch-flexy[video-id="${CSS.escape(videoId)}"]`), 4000);
+  await waitFor(() => {
+    const title = text(TITLE_SELECTOR);
+    return title && title !== previousTitle ? title : null;
+  }, previousTitle ? 1500 : 4000);
+  await waitFor(() => text(CHANNEL_SELECTOR) || null, 2000);
 
   return {
     videoId,
-    title: titleEl?.textContent?.trim() ?? document.title.replace(/ - YouTube$/, ""),
-    channel: channelEl?.textContent?.trim() ?? "",
-    description: descriptionEl?.textContent?.trim().slice(0, 500) ?? "",
+    title: text(TITLE_SELECTOR) || document.title.replace(/ - YouTube$/, ""),
+    channel: text(CHANNEL_SELECTOR),
+    description: text("#description-inline-expander").slice(0, 500),
+    playlistId: new URL(location.href).searchParams.get("list") ?? undefined,
+    source: "watch",
   };
 }
 
 async function handleWatchPage(): Promise<void> {
-  const videoId = getVideoIdFromUrl();
-  console.log("[focus-mode][nav] handleWatchPage called, videoId=" + videoId + " currentVideoId=" + currentVideoId);
-  if (!videoId || !currentSettings?.manualEnabled) {
+  const videoId = new URL(location.href).searchParams.get("v");
+  if (!videoId || !isActive()) {
+    currentVideoId = null;
     hideOverlay();
     return;
   }
-  if (videoId === currentVideoId) {
-    console.log("[focus-mode][nav] same videoId, skipping re-check");
-    return;
-  }
+  if (videoId === currentVideoId) return;
+
+  const seq = ++checkSeq;
+  // ytd-watch-flexy survives trips to other pages, so stale metadata can be there even when
+  // arriving from home - remember the old title whenever the player is on another video.
+  const flexyId = document.querySelector("ytd-watch-flexy")?.getAttribute("video-id");
+  const previousTitle = flexyId && flexyId !== videoId ? text(TITLE_SELECTOR) : "";
   currentVideoId = videoId;
-  showCheckingOverlay();
+  showChecking();
 
-  const meta = await extractVideoMeta(videoId);
-  if (getVideoIdFromUrl() !== videoId) return; // navigated away while we were checking
-  console.log("[focus-mode] extracted meta " + JSON.stringify(meta));
-
-  const { decision } = await evaluateVideo(meta);
-  if (getVideoIdFromUrl() !== videoId) return;
-  console.log("[focus-mode] decision " + JSON.stringify(decision));
-
-  if (decision.allowed) {
-    hideOverlay();
-    return;
+  try {
+    const meta = await extractVideoMeta(videoId, previousTitle);
+    if (seq !== checkSeq) return;
+    const { decision } = await evaluateVideo(meta);
+    if (seq !== checkSeq) return;
+    if (decision.allowed) hideOverlay();
+    else showBlocked(copyKeyFor(decision));
+  } catch (err) {
+    // Typically "Extension context invalidated" after the extension reloads/updates.
+    // Forget the video so a revisit re-checks instead of skipping as "already done".
+    if (seq !== checkSeq) return;
+    console.error("[focus-mode] watch check failed", err);
+    currentVideoId = null;
+    showBlocked("error");
   }
-
-  if (decision.reason === "no-api-key") {
-    setOverlayCopy(
-      "No TypeSafe API key set",
-      "Add one in the extension popup so the topic check can run, or add this channel/video to your allowlist.",
-    );
-  } else if (decision.reason === "error") {
-    setOverlayCopy("Topic check failed", decision.message);
-  } else {
-    resetOverlayCopy();
-  }
-  showOverlay();
 }
 
 function handleShortsPage(): void {
-  const shortsId = getShortsIdFromUrl();
-  if (!shortsId || !currentSettings?.manualEnabled || !currentSettings.hideShorts) {
-    hideOverlay();
+  const shortsId = location.pathname.match(/^\/shorts\/([^/?]+)/)?.[1];
+  if (!shortsId || !isActive() || !currentSettings?.hideShorts) {
     currentVideoId = null;
+    hideOverlay();
     return;
   }
-  // Shorts aren't gated by the allowlist — they're fully blocked while focus mode is on,
-  // same as the "block Shorts" scope we agreed on. No API call needed here.
+  // Shorts aren't gated by the allowlist: fully blocked while focus mode is on. No API call.
   currentVideoId = shortsId;
-  showShortsBlockedOverlay();
+  showBlocked("shorts");
 }
 
+// ---------------------------------------------------------------------------------------
+// Home grid
+//
+// Cards are blurred by CSS unless marked data-focus-verdict="allowed"|"skip" (fail closed:
+// nothing unchecked ever flashes). YouTube's lockup markup has no ids on title/channel, so
+// selectors are class-based with the old id-based ones as a fallback.
+
+const RETRY_AFTER_MS = 30_000;
 let homeGridObserver: MutationObserver | null = null;
-
-function isHomePage(): boolean {
-  return location.pathname === "/";
-}
+let scanQueued = false;
 
 function getVideoIdFromHref(href: string | null): string | null {
   if (!href) return null;
@@ -207,58 +243,115 @@ function getVideoIdFromHref(href: string | null): string | null {
   }
 }
 
-/** Filters the home grid per-video via the same pinned/channel/topic check used on /watch
- * pages, instead of blanket-hiding the whole feed. Cards are hidden immediately (so nothing
- * disallowed flashes), then shown once Jev (or an allowlist match) clears them.
- *
- * YouTube's current grid card ("lockup") markup doesn't put ids on its title/channel
- * elements the way /watch pages do - selectors here are class-based and include the old
- * id-based ones as a fallback in case YouTube reverts or A/B-tests the markup. */
-function processHomeCard(card: Element): void {
-  // Never touch sponsored cards - not our job to filter ads, and no point spending an API call on one.
-  if (card.querySelector('ytd-ad-slot-renderer, [class*="FeedAd"]') || card.textContent?.includes("Sponsored")) return;
+function setVerdict(card: Element, verdict: "allowed" | "blocked" | "skip"): void {
+  card.setAttribute("data-focus-verdict", verdict);
+}
 
+function processHomeCard(card: Element): void {
   const linkEl = card.querySelector<HTMLAnchorElement>(
     'a[class*="ytLockupMetadataViewModelTitle"], a#video-title-link, a#video-title, #thumbnail a',
   );
-  const videoId = getVideoIdFromHref(linkEl?.getAttribute("href") ?? null);
-  if (!videoId) return; // not a normal single-video card (mix, shorts, channel promo) - leave it alone
-
+  const href = linkEl?.getAttribute("href") ?? null;
+  const videoId = getVideoIdFromHref(href);
+  // Cheapest test first: this runs for every card on every scan.
   // Marked with the videoId, not just "checked": YouTube recycles card elements while
   // scrolling and swaps a different video into them, which needs its own verdict.
-  if (card.getAttribute("data-focus-checked") === videoId) return;
-  card.setAttribute("data-focus-checked", videoId);
+  if (videoId && card.getAttribute("data-focus-checked") === videoId) return;
+
+  // Ads: structural markers only. Matching the word "Sponsored" in the text let any video
+  // with it in the title skip the filter, and only worked in English.
+  if (card.querySelector("ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, [class*='FeedAd']")) {
+    setVerdict(card, "skip");
+    return;
+  }
+  if (!videoId) {
+    if (href?.startsWith("/shorts/")) setVerdict(card, currentSettings?.hideShorts ? "blocked" : "skip");
+    // A link that isn't a video (channel promo, etc.) - leave it alone. No link yet means the
+    // card is still rendering: stay blurred and look again on the next scan.
+    else if (href) setVerdict(card, "skip");
+    return;
+  }
 
   const title = linkEl?.textContent?.trim() ?? "";
-  const channelEl = card.querySelector(
-    '[class*="ytContentMetadataViewModelMetadataRow"] span[class*="ytContentMetadataViewModelMetadataText"], ytd-channel-name a, #channel-name',
-  );
-  const channel = channelEl?.textContent?.trim() ?? "";
+  if (!title) return; // text not rendered yet; scoring "Title: " would be a coin flip that gets cached
 
-  card.classList.add("focus-grid-hidden");
+  const retryAt = Number(card.getAttribute("data-focus-retry-at") ?? 0);
+  if (retryAt > Date.now() && card.getAttribute("data-focus-retry-id") === videoId) return;
 
-  void evaluateVideo({ videoId, title, channel, description: "" }).then(({ decision }) => {
-    console.log("[focus-mode][home] " + videoId + " \"" + title + "\" -> " + JSON.stringify(decision));
-    if (card.getAttribute("data-focus-checked") !== videoId) return; // card was recycled for another video meanwhile
-    if (decision.allowed) card.classList.remove("focus-grid-hidden");
-  });
+  const channel =
+    card
+      .querySelector(
+        '[class*="ytContentMetadataViewModelMetadataRow"] span[class*="ytContentMetadataViewModelMetadataText"], ytd-channel-name a, #channel-name',
+      )
+      ?.textContent?.trim() ?? "";
+
+  card.setAttribute("data-focus-checked", videoId);
+  card.removeAttribute("data-focus-verdict");
+  const epoch = homeEpoch;
+
+  evaluateVideo({ videoId, title, channel, description: "", source: "card" })
+    .then(({ decision }) => {
+      if (card.getAttribute("data-focus-checked") !== videoId) return; // recycled for another video
+      if (epoch !== homeEpoch) return; // settings changed; resetHomeVerdicts already queued a re-check
+      if (decision.allowed) setVerdict(card, "allowed");
+      else if (decision.reason === "error") {
+        // Transient failure: retry on a later scan, but not on every animation frame.
+        card.removeAttribute("data-focus-checked");
+        card.setAttribute("data-focus-retry-id", videoId);
+        card.setAttribute("data-focus-retry-at", String(Date.now() + RETRY_AFTER_MS));
+      } else setVerdict(card, "blocked");
+    })
+    .catch(() => {
+      // Extension reloaded under us: leave the card blurred; a page reload re-attaches.
+    });
 }
 
 function scanHomeGrid(): void {
-  if (!isHomePage() || !currentSettings?.manualEnabled || !currentSettings.hideHomepage) return;
-  document.querySelectorAll("ytd-rich-item-renderer").forEach(processHomeCard);
+  if (location.pathname !== "/" || !isActive() || !currentSettings?.hideHomepage) return;
+  document.querySelectorAll('ytd-browse[page-subtype="home"] ytd-rich-item-renderer').forEach(processHomeCard);
 }
 
-function ensureHomeGridObserver(): void {
+/** YouTube mutates the DOM constantly (hover previews, timestamps); batch all of that into
+ * at most one scan per frame instead of one per mutation record. */
+function setHomeObserver(on: boolean): void {
+  if (!on) {
+    homeGridObserver?.disconnect();
+    homeGridObserver = null;
+    return;
+  }
   if (homeGridObserver) return;
-  homeGridObserver = new MutationObserver(() => scanHomeGrid());
+  homeGridObserver = new MutationObserver(() => {
+    if (scanQueued) return;
+    scanQueued = true;
+    requestAnimationFrame(() => {
+      scanQueued = false;
+      scanHomeGrid();
+    });
+  });
   homeGridObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
-function onNavigate(): void {
-  console.log("[focus-mode][nav] onNavigate fired, path=" + location.pathname + " href=" + location.href);
+function resetHomeVerdicts(): void {
+  homeEpoch++;
+  document
+    .querySelectorAll("[data-focus-checked], [data-focus-verdict], [data-focus-retry-at]")
+    .forEach((el) => {
+      el.removeAttribute("data-focus-checked");
+      el.removeAttribute("data-focus-verdict");
+      el.removeAttribute("data-focus-retry-at");
+      el.removeAttribute("data-focus-retry-id");
+    });
+}
+
+// ---------------------------------------------------------------------------------------
+// Routing
+
+function route(): void {
   if (!currentSettings) return;
-  applyHidingClasses(currentSettings);
+  // yt-navigate-finish can fire twice for one video; don't orphan the check already running.
+  const sameVideo = location.pathname === "/watch" && new URL(location.href).searchParams.get("v") === currentVideoId;
+  if (!sameVideo) checkSeq++;
+  applyHidingClasses();
   if (location.pathname === "/watch") {
     void handleWatchPage();
   } else if (location.pathname.startsWith("/shorts/")) {
@@ -267,34 +360,48 @@ function onNavigate(): void {
     currentVideoId = null;
     hideOverlay();
   }
-  if (isHomePage()) {
-    ensureHomeGridObserver();
-    scanHomeGrid();
-  }
+  const onHome = location.pathname === "/" && isActive() && currentSettings.hideHomepage;
+  setHomeObserver(onHome);
+  if (onHome) scanHomeGrid();
+}
+
+/** Only the fields that change a verdict. Edits elsewhere (e.g. the schedule list while
+ * outside a locked window) don't re-check the open video or re-blur the grid. */
+function decisionKey(s: FocusSettings): string {
+  return JSON.stringify([
+    isFocusActive(s),
+    s.allowedChannels,
+    s.pinned,
+    s.topicDescription.trim(),
+    s.allowThreshold,
+    s.dataConsent,
+    s.hideHomepage,
+    s.hideShorts,
+  ]);
 }
 
 async function init(): Promise<void> {
   currentSettings = await getSettings();
-  onNavigate();
+  let lastKey = decisionKey(currentSettings);
+  route();
+
+  const refresh = () => {
+    if (!currentSettings) return;
+    const key = decisionKey(currentSettings);
+    if (key === lastKey) return;
+    lastKey = key;
+    currentVideoId = null; // force a fresh verdict under the new settings
+    resetHomeVerdicts();
+    route();
+  };
 
   onSettingsChanged((settings) => {
     currentSettings = settings;
-    applyHidingClasses(settings);
-    currentVideoId = null; // force re-evaluation under new settings
-    if (isHomePage()) {
-      // Settings changed (e.g. a new allowed channel) - every card needs a fresh verdict.
-      document.querySelectorAll("[data-focus-checked]").forEach((el) => el.removeAttribute("data-focus-checked"));
-      document.querySelectorAll(".focus-grid-hidden").forEach((el) => el.classList.remove("focus-grid-hidden"));
-      scanHomeGrid();
-    }
-    if (location.pathname === "/watch") {
-      void handleWatchPage();
-    } else if (location.pathname.startsWith("/shorts/")) {
-      handleShortsPage();
-    }
+    refresh();
   });
-
-  document.addEventListener("yt-navigate-finish", onNavigate);
+  // Locked windows start and end on the clock, not on a storage write.
+  setInterval(refresh, 30_000);
+  document.addEventListener("yt-navigate-finish", route);
 }
 
 void init();

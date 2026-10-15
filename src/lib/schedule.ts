@@ -18,3 +18,9 @@ export function isWithinSchedule(schedule: ScheduleWindow[], now: Date = new Dat
 }
 
 export const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** Focus mode is on when the user switched it on or a locked window is running. Derived on
+ * read instead of stored, so there's no background timer that can drift or get dropped. */
+export function isFocusActive(settings: { manualEnabled: boolean; schedule: ScheduleWindow[] }, now: Date = new Date()): boolean {
+  return settings.manualEnabled || isWithinSchedule(settings.schedule, now);
+}

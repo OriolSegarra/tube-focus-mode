@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YT Focus Mode",
-  "description": "Blocks YouTube's homepage feed, recommendations and Shorts while letting pinned videos, allowed channels and on-topic content through.",
-  "version": "0.1.0",
+  "name": "Tube Focus Mode with Jev",
+  "description": "Filters YouTube down to what you're focusing on: hides Shorts and the feed, and lets through pinned videos, allowed channels and on-topic videos checked by Jev.",
+  "version": "0.2.0",
   "icons": {
     "16": "public/icons/icon16.png",
     "32": "public/icons/icon32.png",
@@ -24,15 +24,23 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
-      "js": ["src/content/index.ts"],
-      "css": ["src/content/overlay.css"],
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "src/content/index.ts"
+      ],
+      "css": [
+        "src/content/overlay.css"
+      ],
       "run_at": "document_start"
     }
   ],
-  "permissions": ["storage", "alarms"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
-    "https://www.youtube.com/*",
     "https://api.typesafe.ai/*"
-  ]
+  ],
+  "short_name": "Tube Focus"
 }
