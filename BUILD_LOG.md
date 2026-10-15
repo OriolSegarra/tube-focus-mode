@@ -308,3 +308,21 @@ What changed, in plain words:
 **Why it matters for the video:** The code-quality agent found the scariest bug, and it was in the cache I'd written that same morning: after clicking from one video to the next, the extension could judge the new video by the old one's title, *and then remember that wrong answer forever*. Good honest beat: AI-written code reviewed by another AI agent caught a mistake the first one made. Also: "the spending cap would have caught this morning's bug" ties the whole day together.
 
 ---
+
+## 2026-10-15 — The hardening broke things, and the browser showed why
+
+**Decision:** Oriol tested the hardened version and hit three problems: allowed videos stuck behind "checking", homepage cards getting blurred after scrolling back, and a usage counter stuck at 0. Instead of guessing from the code, Claude drove a real YouTube tab and measured.
+
+What the measurements showed:
+- **YouTube had quietly changed its page.** The selector for a video's title found nothing, so every check waited out a 4-second timeout before giving up. That was the "stuck" overlay.
+- **The exact timing of YouTube's navigation.** When you click into a video, YouTube shows the *old* video's title and channel for about 0.6 to 0.9 seconds, then switches the player, title and channel together. The extension now waits for that switch instead of a timer. Allowed videos now clear in under a second.
+- **The safety cap I added that morning was blocking good videos.** A fast scroll loads ~140 cards in 15 seconds; my "max 60 checks a minute" rule marked everything after 60 as blocked, which looked exactly like Jev saying no. Now checks wait in line (4 at a time) instead of being refused, and the video you just opened skips the queue.
+- **A ghost of the old version.** Reloading an extension doesn't reload open tabs, so the old copy kept running beside the new one, showing an overlay it could never clear. New versions now shut themselves down when that happens.
+
+After the fixes, the same test: 138 cards, every one with a real Jev or channel verdict, zero changes after scrolling back up, blocked videos refuse to play.
+
+**Why:** Each fix came from a measurement, not a theory. Two of the three bugs (the selector and the "ghost" copy) can't be seen by reading the code at all; they only exist in the live page.
+
+**Why it matters for the video:** Strong honest beat: "the safety feature caused the bug." A rate limit meant to protect users silently blocked good videos, and it looked identical to the AI making bad calls. Lesson for anyone building with AI: when the AI seems wrong, check the plumbing around it first. Good screen-recording moment: the overlay timing log (old video's title still on screen for ~0.8s after the click).
+
+---
