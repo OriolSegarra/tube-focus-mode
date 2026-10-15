@@ -1,0 +1,150 @@
+/* Toggled on <html> by the content script only while focus mode is active. */
+
+html.focus-hide-home ytd-watch-next-secondary-results-renderer,
+html.focus-hide-home .ytp-endscreen-content,
+html.focus-hide-home .ytp-ce-element {
+  display: none !important;
+}
+
+/* Home grid cards that Jev hasn't cleared yet (or has rejected). Blurred in place rather
+   than removed from the DOM, so the grid layout stays stable as verdicts land one by one -
+   nothing jumps or reflows as cards get cleared. */
+.focus-grid-hidden {
+  filter: blur(16px) grayscale(0.5);
+  pointer-events: none;
+  user-select: none;
+  transition: filter 220ms ease;
+}
+
+/* Entry points into Shorts (shelf, nav links). The /shorts/* route itself is blocked
+   by the full-page overlay in index.ts, not by hiding the player's internal renderer -
+   that renderer is reused elsewhere and hiding it broke more than it fixed. */
+html.focus-hide-shorts ytd-reel-shelf-renderer,
+html.focus-hide-shorts ytd-rich-shelf-renderer[is-shorts],
+html.focus-hide-shorts ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+html.focus-hide-shorts ytd-guide-entry-renderer a[title="Shorts"] {
+  display: none !important;
+}
+
+#focus-mode-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 17, 17, 0.5);
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  color: #f7f6f3;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms ease, visibility 160ms ease;
+}
+
+#focus-mode-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+#focus-mode-overlay .focus-card {
+  position: relative;
+  width: min(480px, calc(100vw - 48px));
+  border: 2px solid #f7f6f3;
+  border-radius: 14px;
+  box-shadow: 6px 6px 0 0 #ff5a1f;
+  background: #191919;
+  padding: 32px;
+  text-align: left;
+  overflow: visible;
+}
+
+#focus-mode-overlay .focus-stamp {
+  position: absolute;
+  top: -18px;
+  right: -14px;
+  transform: rotate(9deg);
+  font-family: "Space Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  color: #e03e3e;
+  border: 3px solid #e03e3e;
+  border-radius: 8px;
+  padding: 4px 12px;
+  background: rgba(224, 62, 62, 0.08);
+  pointer-events: none;
+}
+
+/* "Checking" state reuses this same card - just hides the verdict-only bits and pulses
+   gently - so going from checking to blocked is a content swap, not a jump between
+   differently sized/positioned elements. */
+#focus-mode-overlay.is-checking .focus-stamp,
+#focus-mode-overlay.is-checking .focus-actions {
+  display: none;
+}
+
+#focus-mode-overlay.is-checking .focus-card {
+  animation: focus-checking-pulse 1s ease-in-out infinite;
+}
+
+@keyframes focus-checking-pulse {
+  0%,
+  100% {
+    box-shadow: 6px 6px 0 0 #ff5a1f;
+  }
+  50% {
+    box-shadow: 6px 6px 0 0 #ffb48a;
+  }
+}
+
+#focus-mode-overlay .focus-tag {
+  display: inline-block;
+  font-family: "Space Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #111111;
+  background: #ff5a1f;
+  border-radius: 999px;
+  padding: 4px 10px;
+  margin-bottom: 16px;
+}
+
+#focus-mode-overlay h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+#focus-mode-overlay p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #9b9a97;
+  margin: 0 0 20px;
+}
+
+#focus-mode-overlay .focus-actions {
+  display: flex;
+  gap: 10px;
+}
+
+#focus-mode-overlay button {
+  font-family: "Space Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 2px solid #f7f6f3;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #111111;
+  color: #f7f6f3;
+  cursor: pointer;
+}
+
+#focus-mode-overlay button:hover {
+  background: #f7f6f3;
+  color: #111111;
+}

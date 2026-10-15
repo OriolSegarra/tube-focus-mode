@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  width: 380px;
+  margin: 0;
+  background: #111111;
+}
+
+/* Chunky retro checkbox-style toggle, Notion-high-contrast colors. */
+.toggle-switch {
+  position: relative;
+  width: 52px;
+  height: 30px;
+  border: 2px solid #f7f6f3;
+  border-radius: 999px;
+  background: #111111;
+  cursor: pointer;
+  transition: background 150ms ease;
+  flex: none;
+}
+
+.toggle-switch[data-on="true"] {
+  background: #ff5a1f;
+}
+
+.toggle-switch[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.toggle-switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #f7f6f3;
+  transition: transform 150ms ease;
+}
+
+.toggle-switch[data-on="true"] .knob {
+  transform: translateX(20px);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "Space Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1.5px solid #f7f6f3;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #f7f6f3;
+  background: #191919;
+}
+
+.chip button {
+  color: #9b9a97;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chip button:hover {
+  color: #ff5a1f;
+}
