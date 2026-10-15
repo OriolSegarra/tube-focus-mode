@@ -98,3 +98,7 @@ Production builds ship with a strict content security policy (scripts only from 
 ## Credits
 
 Built by [Oriol Segarra](https://sintesi.studio) at Síntesi Studio, with Claude Code. Topic checks are powered by [Jev](https://typesafe.ai) from TypeSafe. This project isn't affiliated with or endorsed by YouTube or TypeSafe.
+
+## License
+
+[MIT](LICENSE). Use it, change it, ship your own version; just keep the copyright notice.
