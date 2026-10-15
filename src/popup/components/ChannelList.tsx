@@ -23,7 +23,7 @@ export function ChannelList({ channels, onChange }: ChannelListProps) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
-          placeholder="Channel display name (as shown under the video)"
+          placeholder="@handle, or channel name"
           className="flex-1 bg-surface border border-hairline rounded-sm text-ink text-xs font-mono px-2 py-1.5 placeholder:text-ink-muted"
         />
         <button
@@ -34,6 +34,10 @@ export function ChannelList({ channels, onChange }: ChannelListProps) {
           Add
         </button>
       </div>
+      <p className="text-[11px] text-ink-muted mb-2">
+        Prefer the @handle (from the channel's URL): it matches only that channel. A name also matches any
+        channel whose name contains it.
+      </p>
       <div className="flex flex-wrap gap-1.5">
         {channels.map((c, i) => (
           <span key={i} className="chip">

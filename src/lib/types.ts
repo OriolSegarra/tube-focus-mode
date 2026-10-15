@@ -16,7 +16,7 @@ export interface PinnedEntry {
 }
 
 export interface AllowedChannel {
-  /** channel name or @handle as it appears on the page */
+  /** "@handle" or "UC…" channel id (exact match), or a display name (fuzzy match) */
   name: string;
 }
 
@@ -45,6 +45,9 @@ export interface VideoMeta {
   title: string;
   channel: string;
   description: string;
+  /** Channel @handles / UC… ids linked from the video (several on collabs), for exact
+   * allowlist matching - display names can be imitated, handles can't. */
+  channelIds: string[];
   /** `list=` param on /watch, so pinned playlists can match their videos. */
   playlistId?: string;
   source: MetaSource;

@@ -1,6 +1,6 @@
 import { getSecrets, getSettings } from "@/lib/storage";
 import { classifyVideoOnTopic } from "@/lib/typesafe";
-import { fuzzyContains } from "@/lib/text";
+import { fuzzyContains, isChannelIdEntry } from "@/lib/text";
 import { getScore } from "@/lib/scoreCache";
 import { UsageLimitError, withUsageLimit } from "@/lib/usage";
 import type { EvaluateVideoResponse } from "@/lib/messages";
@@ -20,6 +20,7 @@ chrome.storage.onChanged.addListener((_changes, area) => {
 
 const LIMITS = { title: 200, channel: 100, description: 500 } as const;
 const YT_ID = /^[\w-]{6,64}$/;
+const CHANNEL_ID = /^(@[\p{L}\p{N}._\-·]{1,100}|uc[\w-]{20,})$/u;
 
 /** Everything here comes from YouTube's DOM, i.e. whatever an uploader typed. Check the
  * shape and clamp lengths so a giant title can't inflate what each Jev call costs. */
@@ -34,6 +35,9 @@ function parseVideo(raw: unknown): VideoMeta | null {
     title: str(v.title, LIMITS.title),
     channel: str(v.channel, LIMITS.channel),
     description: str(v.description, LIMITS.description),
+    channelIds: Array.isArray(v.channelIds)
+      ? v.channelIds.filter((id): id is string => typeof id === "string" && CHANNEL_ID.test(id)).slice(0, 10)
+      : [],
     playlistId: typeof v.playlistId === "string" && YT_ID.test(v.playlistId) ? v.playlistId : undefined,
     source: v.source,
   };
@@ -48,9 +52,14 @@ async function decideVideo(video: VideoMeta): Promise<VideoDecision> {
   );
   if (pinnedMatch) return { allowed: true, reason: "pinned" };
 
-  // Substring match, not equality: collab credits render as "Fred again . .and LATIN MAFIA",
-  // not a clean single channel name, and punctuation/spacing varies by video.
-  const channelMatch = settings.allowedChannels.some((c) => fuzzyContains(video.channel, c.name));
+  // "@handle"/"UC…" entries match exactly: a copycat channel can borrow a display name but
+  // not a handle. Plain names keep the substring match, since collab credits render as
+  // "Fred again . .and LATIN MAFIA" - which also means "Lofi Girl" lets "Lofi Girl Fans" in.
+  const channelMatch = settings.allowedChannels.some((c) =>
+    isChannelIdEntry(c.name)
+      ? video.channelIds.includes(c.name.trim().toLowerCase())
+      : fuzzyContains(video.channel, c.name),
+  );
   if (channelMatch) return { allowed: true, reason: "channel" };
 
   // Cheap refusals before anything leaves the browser.

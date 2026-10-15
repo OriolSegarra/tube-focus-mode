@@ -1,6 +1,7 @@
 import { getSettings, onSettingsChanged } from "@/lib/storage";
 import { evaluateVideo } from "@/lib/messages";
 import { isFocusActive } from "@/lib/schedule";
+import { channelIdFromHref } from "@/lib/text";
 import type { FocusSettings, VideoDecision, VideoMeta } from "@/lib/types";
 
 let currentSettings: FocusSettings | null = null;
@@ -150,6 +151,14 @@ async function waitFor<T>(read: () => T | null | undefined, timeoutMs: number): 
   return null;
 }
 
+const CHANNEL_LINK = 'a[href^="/@"], a[href^="/channel/"]';
+
+function channelIdsIn(root: ParentNode | null): string[] {
+  if (!root) return [];
+  const ids = [...root.querySelectorAll(CHANNEL_LINK)].map((a) => channelIdFromHref(a.getAttribute("href")));
+  return [...new Set(ids.filter((id): id is string => !!id))];
+}
+
 const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? "";
 const TITLE_SELECTOR = "ytd-watch-metadata h1 yt-formatted-string, ytd-watch-metadata #title h1";
 // Single-artist videos expose the channel as an <a>; collab credits render a <button> that
@@ -169,6 +178,7 @@ async function extractVideoMeta(videoId: string): Promise<VideoMeta> {
     videoId,
     title: text(TITLE_SELECTOR) || document.title.replace(/ - YouTube$/, ""),
     channel: text(CHANNEL_SELECTOR),
+    channelIds: channelIdsIn(document.querySelector("ytd-video-owner-renderer")),
     description: text("#description-inline-expander").slice(0, 500),
     playlistId: new URL(location.href).searchParams.get("list") ?? undefined,
     source: "watch",
@@ -286,7 +296,7 @@ function processHomeCard(card: Element): void {
   card.removeAttribute("data-focus-verdict");
   const epoch = homeEpoch;
 
-  evaluateVideo({ videoId, title, channel, description: "", source: "card" })
+  evaluateVideo({ videoId, title, channel, channelIds: channelIdsIn(card), description: "", source: "card" })
     .then(({ decision }) => {
       if (card.getAttribute("data-focus-checked") !== videoId) return; // recycled for another video
       if (epoch !== homeEpoch) return; // settings changed; resetHomeVerdicts already queued a re-check
