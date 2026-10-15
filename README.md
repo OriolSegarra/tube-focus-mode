@@ -18,7 +18,7 @@ You open YouTube for one tutorial. Forty minutes later you're watching a strange
 Every video goes through three checks, in order. The first two never leave your browser.
 
 1. **Pinned videos and playlists** you added are always allowed.
-2. **Allowed channels** are always allowed. Add them as `@handle` (or paste the channel's link) for an exact match.
+2. **Allowed channels** are always allowed. Add them as `@handle` (or paste the channel's link) for an exact match. One saved handle also covers collabs that channel is credited on.
 3. **Everything else is asked to [Jev](https://typesafe.ai)**, TypeSafe's classification model: *"Does this video match the topics this person wants to focus on?"* Jev answers with a probability from 0 to 1, and the video is allowed if it's above your threshold (you set it with a slider).
 
 You describe your topics in plain words, like *"Notion tutorials, focus music, lo-fi, programming"*. No keyword lists.

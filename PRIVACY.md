@@ -33,6 +33,10 @@ TypeSafe handles this data under its own privacy policy and terms (https://types
 
 You can turn topic checks off at any time in the extension popup ("Stop sending videos to TypeSafe"). Allowed channels and pinned videos keep working without it.
 
+## Channel lookups on YouTube
+
+When you allow a channel by its @handle, the extension opens that channel's YouTube page once in the background (from your YouTube tab) to learn its display name and channel ID. This goes to YouTube only, like any page you'd visit there, and the result is stored on this device.
+
 ## What we don't do
 
 - We don't sell, rent or share your data with anyone.
