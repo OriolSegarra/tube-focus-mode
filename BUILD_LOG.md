@@ -303,7 +303,7 @@ What changed, in plain words:
 - **Smoother homepage:** scans batched to once per frame instead of once per page change, and any card not yet checked stays blurred, so nothing slips through for a split second.
 - **Smaller attack surface:** two permissions instead of three, a strict content security policy, fonts bundled instead of loaded from Google, no debug logs in the shipped build, and every message from the page checked before use.
 
-**Why:** Publishing changes who you're protecting. For a personal tool, "it works for me" is enough; for strangers, you're handling their API key, their money and their viewing data. The biggest real risk wasn't a hacker: it was not being upfront about what leaves the browser, which is also the #1 reason the Chrome Web Store rejects extensions.
+**Why:** Publishing changes who you're protecting. For a personal tool, "it works for me" is enough; for strangers, you're handling their API key, their money and their viewing data. The biggest real risk wasn't a hacker: it was not being upfront about what leaves the browser, which is also one of the most common reasons the Chrome Web Store rejects extensions.
 
 **Why it matters for the video:** The code-quality agent found the scariest bug, and it was in the cache I'd written that same morning: after clicking from one video to the next, the extension could judge the new video by the old one's title, *and then remember that wrong answer forever*. Good honest beat: AI-written code reviewed by another AI agent caught a mistake the first one made. Also: "the spending cap would have caught this morning's bug" ties the whole day together.
 
