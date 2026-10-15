@@ -291,3 +291,20 @@ Each entry: what was decided, why, and why it's an interesting beat for a video.
 Sources: docs.typesafe.ai/models.md, typesafe.ai, platform.claude.com/docs/en/about-claude/pricing.md (all checked 2026-10-15). Not verified: Jev's speed (only third-party sites claim it), Haiku's speed (estimate), any Jev free tier.
 
 ---
+
+## 2026-10-15 — Getting it ready to publish: two reviews, one rewrite
+
+**Decision:** Before publishing, ran two reviews side by side: I did security, and a parallel Claude agent reviewed bugs, speed and code quality. Then fixed almost everything in one pass and renamed the extension to "Tube Focus Mode with Jev" (v0.2.0).
+
+What changed, in plain words:
+- **It asks before sending anything.** Topic checks stay off until you click "Allow topic checks", which explains exactly what goes to TypeSafe (title, channel, description) and nothing else. There's a written privacy policy to go with it.
+- **A spending cap.** At most 1,000 Jev checks a day, 60 a minute, 4 at a time, with a "checks today" counter in the popup. Every check is paid from the user's own key, so a bug can't drain it.
+- **Four real bugs fixed:** videos judged by the *previous* video's title after clicking through; weak homepage guesses being reused on the full video page; a "checking" card that could get stuck forever; pinned playlists that never worked.
+- **Smoother homepage:** scans batched to once per frame instead of once per page change, and any card not yet checked stays blurred, so nothing slips through for a split second.
+- **Smaller attack surface:** two permissions instead of three, a strict content security policy, fonts bundled instead of loaded from Google, no debug logs in the shipped build, and every message from the page checked before use.
+
+**Why:** Publishing changes who you're protecting. For a personal tool, "it works for me" is enough; for strangers, you're handling their API key, their money and their viewing data. The biggest real risk wasn't a hacker: it was not being upfront about what leaves the browser, which is also the #1 reason the Chrome Web Store rejects extensions.
+
+**Why it matters for the video:** The code-quality agent found the scariest bug, and it was in the cache I'd written that same morning: after clicking from one video to the next, the extension could judge the new video by the old one's title, *and then remember that wrong answer forever*. Good honest beat: AI-written code reviewed by another AI agent caught a mistake the first one made. Also: "the spending cap would have caught this morning's bug" ties the whole day together.
+
+---
